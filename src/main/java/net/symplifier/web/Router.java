@@ -1,7 +1,16 @@
 package net.symplifier.web;
 
-import net.symplifier.web.access.User;
-import net.symplifier.web.access.UserSource;
+import net.symplifier.core.application.Session;
+import net.symplifier.web.acl.AccessControlException;
+import net.symplifier.web.acl.User;
+import net.symplifier.web.acl.UserSource;
+import org.apache.jasper.servlet.JspServlet;
+import org.eclipse.jetty.servlet.DefaultServlet;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.webapp.WebAppContext;
+import org.glassfish.jersey.jackson.JacksonFeature;
+import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.servlet.ServletContainer;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.*;
@@ -13,19 +22,161 @@ import java.security.SecureRandom;
 /**
  * Created by ranjan on 8/10/15.
  */
-public class Router extends HttpServlet {
-  public static final String ASSETS = "/assets";
-  public static final String PAGES = "/pages";
+public class Router {
+  public static final String WEB_INF = "/WEB-INF";
+  public static final String SESSION_USER = "USER";
+
+  public static final String PAGES = WEB_INF + "/pages";
   public static final String PRIVATE = PAGES + "/private";
   public static final String PUBLIC = PAGES + "/public";
+  public static final String LOGIN_PAGE = PUBLIC + "/login";
+  public static final String COOKIE_REMEMBERED_USER = "remembered-user";
 
+  private final WebAppContext context;
   private final UserSource userSource;
   private final String path;
   private final String resourceUrl;
   private final SecureRandom random;
   private final String resource;
 
-  public Router(String path, String resource, UserSource userSource) throws WebServerException{
+  public Router(String path, URL resource) {
+    this(path, resource, "/pages");
+  }
+
+  public Router(String path, URL resource, String pagesPath) {
+    assert(resource != null);
+
+    // Create a web app context
+    context = new WebAppContext();
+    context.setContextPath(path);
+    context.setWar(resource.toExternalForm());
+
+    // Set the ContainerIncludePattern so that jetty examines the container-path
+    // jars for tlds, web-fragments, et
+    // if you omit the jar that contains the jstl tlds, the jsp engine will scan
+    // for them instead
+    context.setAttribute(
+            "org.eclipse.jetty.server.webapp.ContainerIncludeJarPattern",
+            ".*/[^/]*servlet-api-[^/]*\\.jar$|.*/javax.servlet.jsp.jstl-.*\\.jar$|.*/[^/]*taglibs.*\\.jar$"
+    );
+
+
+    // The internal router that checks on all incoming connections
+    // except the static routes
+    context.addServlet(new ServletHolder(internalRouter), "/*");
+
+    // Add the default JSP handler
+    context.addServlet(new ServletHolder(new JspServlet()), WEB_INF + pagesPath + "/*");
+  }
+
+  public void addStaticRoute(String path, URL resource) {
+    context.addServlet(new ServletHolder(new DefaultServlet()), path + "/*");
+  }
+
+  public void addServlet(String path, HttpServlet servlet) {
+    context.addServlet(new ServletHolder(servlet), WEB_INF + path + "/*");
+  }
+
+  public void addJerseyServlet(String path, Package pkg) {
+    ResourceConfig config = new ResourceConfig()
+            .packages(pkg.getName())
+            .register(JacksonFeature.class);
+
+    ServletContainer container = new ServletContainer(config);
+
+    context.addServlet(new ServletHolder(container), WEB_INF + path + "/*");
+  }
+
+  private final HttpServlet internalRouter = new HttpServlet() {
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+      super.doGet(req, resp);
+
+
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+      super.doPost(req, resp);
+    }
+
+    private void process(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+      // The primary function of the default router is to check
+      // for JSP pages, and forward to one if available
+
+      String path = request.getRequestURI();
+      // if we get a path starting with WEB-INF then in means, the
+      // resource could not be located
+      if(path.startsWith(WEB_INF)) {
+        response.sendError(HttpServletResponse.SC_NOT_FOUND, "Page not found");
+        return;
+      }
+
+      String publicPath = PUBLIC + path;
+      // Let's see if the given path corresponds to a publicly accessible page
+      if(exists(publicPath)) {
+        forward(publicPath, request, response, false);
+        return;
+      }
+
+      String privatePath = PRIVATE + path;
+      if (exists(privatePath)) {
+        forward(privatePath, request, response, true);
+      } else {
+        // just forward the request to WEB-INF to let other
+        // servlet handle the request if one is available
+        forward(WEB_INF + path, request, response, false);
+      }
+    }
+  };
+
+
+  public static void setSessionUser(HttpServletRequest request, User user) {
+    HttpSession session = request.getSession();
+    session.setAttribute(SESSION_USER, user);
+  }
+
+  public static User getSessionUser(HttpServletRequest request) throws AccessControlException {
+    // Check if we have a session
+    HttpSession session = request.getSession(false);
+    if (session == null) {
+      User user = tryRememberedUser(null, request);
+      if (user == null) {
+        throw new AccessControlException();
+      } else {
+        return user;
+      }
+    }
+
+    // Check if we have a user on a session
+    User user = (User)session.getAttribute(SESSION_USER);
+    if (user == null) {
+      user = tryRememberedUser(session, request);
+      throw new AccessControlException();
+    }
+
+    return user;
+  }
+
+  public static User tryRememberedUser(HttpSession session, HttpServletRequest request, UserSource source) {
+    for(Cookie cookie:request.getCookies()) {
+      if (cookie.getName().equals(COOKIE_REMEMBERED_USER)) {
+        String value = cookie.getValue();
+        String parts[] = value.split("-");
+
+        String machineId = parts[0];
+        String tokenId = parts[1];
+
+        return source.find(machineId, tokenId);
+      }
+    }
+
+    return null;
+  }
+
+
+  public Router(WebAppContext context, String path, String resource, UserSource userSource) throws WebServerException{
+    this.context = context;
     if (path.equals("/")) {
       this.path = "";
     } else {
@@ -106,75 +257,72 @@ public class Router extends HttpServlet {
     return user;
   }
 
+  private User findRememberedUser(HttpServletRequest request) {
+    for(Cookie cookie:request.getCookies()) {
+      if (cookie.getName().equals("user-remembered")) {
+        String parts[] = cookie.getValue().split("-");
+        if (parts.length != 2) {
+          return null;
+        }
+
+        String machineId = parts[0];
+        String rememberedId = parts[1];
+
+        return userSource.find(parts[0], parts[1]);
+      }
+    }
+
+    return null;
+  }
+
   private boolean exists(String path) {
     System.out.println("Searching for " + resource + path);
     return getClass().getClassLoader().getResource(resource + path) != null;
   }
 
-  protected void doPost(HttpServletRequest request, HttpServletResponse response)
-          throws IOException, ServletException{
-    String target = request.getRequestURI();
-    if (target.equals("/login")) {
-      try {
-        User user = tryLogin(request, response);
-        if (user != null) {
-          HttpSession session = request.getSession(true);
-          session.setAttribute("user", user);
+  private static class HttpSessionDelegation implements Session.Delegation {
+    private final HttpSession httpSession;
 
-          // redirect to a proper page
-          redirect(request, response);
-          return;
-        }
-      } catch(LoginException e) {
-        request.setAttribute("message", e.getMessage());
-      }
+    public HttpSessionDelegation(HttpSession httpSession) {
+      this.httpSession = httpSession;
+    }
+    @Override
+    public Object getAttribute(String name) {
+      return httpSession.getAttribute(name);
     }
 
-    forward(target, request, response);
-  }
-
-  @Override
-  protected void doGet(HttpServletRequest request, HttpServletResponse response)
-          throws IOException, ServletException {
-    String target = request.getRequestURI();
-
-    switch (target) {
-      case "/":
-        //Looks like we are trying to access the home page
-        target = "/home";
-        break;
-      case "/logout":
-        // Trying to logout
-        // Destroy the session
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-          session.invalidate();
-        }
-
-        //redirect to a proper page
-        redirect(request, response);
-        return;
+    @Override
+    public void setAttribute(String name, Object value) {
+      httpSession.setAttribute(name, value);
     }
-
-    forward(target, request, response);
-
   }
 
   private void forward(String target, HttpServletRequest request, HttpServletResponse response)
           throws IOException, ServletException {
+    HttpSession session = request.getSession();
+    User user = (User) session.getAttribute(SESSION_USER);
+
+    Session.start(user, new HttpSessionDelegation(request.getSession()));
+
     // Let's see if we have an active session
     HttpSession activeSession = request.getSession(false);
     String page = null;
     User user = null;
     if (activeSession != null) {
-      user = (User)activeSession.getAttribute("user");
-      if (user != null) {
-        // First we will see if we have a page specific to the user role
-        page = PAGES + "_" + user.getRole() + target + ".jsp";
-        if (!exists(page)) {
-          // No role specific page found, so move on to a private page
-          page = PRIVATE + target + ".jsp";
-        }
+      user = (User) activeSession.getAttribute("user");
+    }
+
+    // Try to find a user from a remembered token
+    if (user == null) {
+      user = findRememberedUser(request);
+    }
+
+    if (user != null) {
+      // First we will see if we have a page specific to the user role
+      page = PAGES + "_" + user.getRole() + target + ".jsp";
+      if (!exists(page)) {
+        // No role specific page found, so move on to a private page
+        page = PRIVATE + target + ".jsp";
       }
     }
 
@@ -192,9 +340,10 @@ public class Router extends HttpServlet {
       } else {
         // We got a 404 error here
         System.out.println("Page not found");
+        request.getRequestDispatcher("/WEB-INF" + target).forward(request, response);
       }
     } else {
-      // We got a page to display, so will dispatch our request there
+      // We got a page to display, so will dispatch our request here
       //page = "assets/wscada/readme.txt";
       System.out.println(page);
       request.getRequestDispatcher(page).forward(request, response);
