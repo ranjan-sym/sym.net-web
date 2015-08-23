@@ -35,21 +35,28 @@ public class Router {
   private final WebAppContext context;
   private final UserSource userSource;
   private final String path;
+  private final String resource;
   private final String resourceUrl;
   private final SecureRandom random;
-  private final String resource;
 
-  public Router(String path, URL resource) {
-    this(path, resource, "/pages");
+  public Router(UserSource userSource, String path, String resource) {
+    this(userSource, path, resource, PAGES);
   }
 
-  public Router(String path, URL resource, String pagesPath) {
+  public Router(UserSource userSource, String path, String resource, String pagesPath) {
     assert(resource != null);
+
+    this.userSource = userSource;
+    this.path = path;
+    this.resource = resource;
+    this.resourceUrl = getClass().getClassLoader().getResource(resource).toExternalForm();
+    this.random = new SecureRandom();
+
 
     // Create a web app context
     context = new WebAppContext();
     context.setContextPath(path);
-    context.setWar(resource.toExternalForm());
+    context.setWar(resourceUrl);
 
     // Set the ContainerIncludePattern so that jetty examines the container-path
     // jars for tlds, web-fragments, et
@@ -66,10 +73,14 @@ public class Router {
     context.addServlet(new ServletHolder(internalRouter), "/*");
 
     // Add the default JSP handler
-    context.addServlet(new ServletHolder(new JspServlet()), WEB_INF + pagesPath + "/*");
+    context.addServlet(new ServletHolder(new JspServlet()), pagesPath + "/*");
   }
 
-  public void addStaticRoute(String path, URL resource) {
+  public WebAppContext getContext() {
+    return context;
+  }
+
+  public void addStaticRoute(String path) {
     context.addServlet(new ServletHolder(new DefaultServlet()), path + "/*");
   }
 
@@ -90,14 +101,12 @@ public class Router {
   private final HttpServlet internalRouter = new HttpServlet() {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-      super.doGet(req, resp);
-
-
+      process(req, resp);
     }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-      super.doPost(req, resp);
+      process(req, resp);
     }
 
     private void process(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
@@ -105,21 +114,21 @@ public class Router {
       // for JSP pages, and forward to one if available
 
       String path = request.getRequestURI();
-      // if we get a path starting with WEB-INF then in means, the
+      // if we get a path starting with WEB-INF then it means, the
       // resource could not be located
       if(path.startsWith(WEB_INF)) {
         response.sendError(HttpServletResponse.SC_NOT_FOUND, "Page not found");
         return;
       }
 
-      String publicPath = PUBLIC + path;
+      String publicPath = PUBLIC + path + ".jsp";
       // Let's see if the given path corresponds to a publicly accessible page
       if(exists(publicPath)) {
         forward(publicPath, request, response, false);
         return;
       }
 
-      String privatePath = PRIVATE + path;
+      String privatePath = PRIVATE + path + ".jsp";
       if (exists(privatePath)) {
         forward(privatePath, request, response, true);
       } else {
@@ -129,69 +138,69 @@ public class Router {
       }
     }
   };
+//
+//
+//  public static void setSessionUser(HttpServletRequest request, User user) {
+//    HttpSession session = request.getSession();
+//    session.setAttribute(SESSION_USER, user);
+//  }
+//
+//  public static User getSessionUser(HttpServletRequest request) throws AccessControlException {
+//    // Check if we have a session
+//    HttpSession session = request.getSession(false);
+//    if (session == null) {
+//      User user = tryRememberedUser(request, );
+//      if (user == null) {
+//        throw new AccessControlException();
+//      } else {
+//        return user;
+//      }
+//    }
+//
+//    // Check if we have a user on a session
+//    User user = (User)session.getAttribute(SESSION_USER);
+//    if (user == null) {
+//      user = tryRememberedUser(request);
+//      throw new AccessControlException();
+//    }
+//
+//    return user;
+//  }
+//
+//  public static User tryRememberedUser(HttpServletRequest request, UserSource source) {
+//    for(Cookie cookie:request.getCookies()) {
+//      if (cookie.getName().equals(COOKIE_REMEMBERED_USER)) {
+//        String value = cookie.getValue();
+//        String parts[] = value.split("-");
+//
+//        String machineId = parts[0];
+//        String tokenId = parts[1];
+//
+//        return source.find(machineId, tokenId);
+//      }
+//    }
+//
+//    return null;
+//  }
 
-
-  public static void setSessionUser(HttpServletRequest request, User user) {
-    HttpSession session = request.getSession();
-    session.setAttribute(SESSION_USER, user);
-  }
-
-  public static User getSessionUser(HttpServletRequest request) throws AccessControlException {
-    // Check if we have a session
-    HttpSession session = request.getSession(false);
-    if (session == null) {
-      User user = tryRememberedUser(null, request);
-      if (user == null) {
-        throw new AccessControlException();
-      } else {
-        return user;
-      }
-    }
-
-    // Check if we have a user on a session
-    User user = (User)session.getAttribute(SESSION_USER);
-    if (user == null) {
-      user = tryRememberedUser(session, request);
-      throw new AccessControlException();
-    }
-
-    return user;
-  }
-
-  public static User tryRememberedUser(HttpSession session, HttpServletRequest request, UserSource source) {
-    for(Cookie cookie:request.getCookies()) {
-      if (cookie.getName().equals(COOKIE_REMEMBERED_USER)) {
-        String value = cookie.getValue();
-        String parts[] = value.split("-");
-
-        String machineId = parts[0];
-        String tokenId = parts[1];
-
-        return source.find(machineId, tokenId);
-      }
-    }
-
-    return null;
-  }
-
-
-  public Router(WebAppContext context, String path, String resource, UserSource userSource) throws WebServerException{
-    this.context = context;
-    if (path.equals("/")) {
-      this.path = "";
-    } else {
-      this.path = path;
-    }
-    URL url = ClassLoader.getSystemClassLoader().getResource(resource);
-    if (url == null) {
-      throw new WebServerException("The resource path '" + resource + "' is not available");
-    }
-    this.resource = resource;
-    this.resourceUrl = url.toExternalForm();
-    this.userSource = userSource;
-    this.random = new SecureRandom();
-
-  }
+//
+//  public Router(WebAppContext context, String path, String resource, UserSource userSource) throws WebServerException{
+//    this.context = context;
+//    if (path.equals("/")) {
+//      this.path = "";
+//    } else {
+//      this.path = path;
+//    }
+//    URL url = ClassLoader.getSystemClassLoader().getResource(resource);
+//    if (url == null) {
+//      throw new WebServerException("The resource path '" + resource + "' is not available");
+//    }
+//    this.resource = resource;
+//    this.resourceUrl = url.toExternalForm();
+//    this.userSource = userSource;
+//    this.random = new SecureRandom();
+//
+//  }
 
   public static class LoginException extends Exception {
     public LoginException(String message) {
@@ -297,56 +306,31 @@ public class Router {
     }
   }
 
-  private void forward(String target, HttpServletRequest request, HttpServletResponse response)
+  private void forward(String target, HttpServletRequest request, HttpServletResponse response, boolean privateAccess)
           throws IOException, ServletException {
-    HttpSession session = request.getSession();
-    User user = (User) session.getAttribute(SESSION_USER);
 
-    Session.start(user, new HttpSessionDelegation(request.getSession()));
-
-    // Let's see if we have an active session
-    HttpSession activeSession = request.getSession(false);
-    String page = null;
-    User user = null;
-    if (activeSession != null) {
-      user = (User) activeSession.getAttribute("user");
-    }
-
-    // Try to find a user from a remembered token
+    HttpSession httpSession = request.getSession();
+    User user = httpSession != null ? (User) httpSession.getAttribute(SESSION_USER): null;
     if (user == null) {
       user = findRememberedUser(request);
     }
 
-    if (user != null) {
-      // First we will see if we have a page specific to the user role
-      page = PAGES + "_" + user.getRole() + target + ".jsp";
-      if (!exists(page)) {
-        // No role specific page found, so move on to a private page
-        page = PRIVATE + target + ".jsp";
-      }
-    }
-
-    // Let's see if we need to fall back to a public page
-    if (page == null || !exists(page)) {
-      page = PUBLIC + target + ".jsp";
-    }
-
-    if (!exists(page)) {
-      // Let's see if page is actually a private page and a user could not be
-      // found
-      if (user == null && exists(PRIVATE + target + ".jsp")) {
-        // no proper access, so we will redirect to the login page
-        request.getRequestDispatcher("/login").forward(request, response);
-      } else {
-        // We got a 404 error here
-        System.out.println("Page not found");
-        request.getRequestDispatcher("/WEB-INF" + target).forward(request, response);
-      }
+    // Let's check if we are trying to access a private page and a user has
+    // not been defined, in which case, we will forward the request to a login page
+    if (privateAccess && user == null) {
+      // Redirect to the login page
+      response.sendRedirect("/login?returnUrl=" + request.getRequestURI());
     } else {
-      // We got a page to display, so will dispatch our request here
-      //page = "assets/wscada/readme.txt";
-      System.out.println(page);
-      request.getRequestDispatcher(page).forward(request, response);
+
+      // Start application session
+      Session session = Session.start(user, new HttpSessionDelegation(request.getSession()));
+
+      // Handle the request
+      request.getRequestDispatcher(target).forward(request, response);
+
+      // End the application session
+      session.end();
+
     }
   }
 }
