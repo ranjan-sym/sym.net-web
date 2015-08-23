@@ -10,6 +10,7 @@ import org.eclipse.jetty.server.handler.ResourceHandler;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.webapp.Configuration;
 import org.eclipse.jetty.webapp.JettyWebXmlConfiguration;
 import org.eclipse.jetty.webapp.WebAppContext;
@@ -18,6 +19,8 @@ import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.servlet.ServletContainer;
 
 import javax.servlet.http.HttpServlet;
+import java.io.File;
+import java.net.MalformedURLException;
 import java.net.URL;
 
 
@@ -129,6 +132,17 @@ public class WebServer {
 
     contexts.addHandler(context);
 
+  }
+
+  public void setStaticHandler(String path, File location) {
+    ResourceHandler resourceHandler = new ResourceHandler();
+    resourceHandler.setResourceBase(location.getAbsolutePath());
+    resourceHandler.setDirectoriesListed(true);
+
+    ContextHandler context = new ContextHandler(path);
+    context.setHandler(resourceHandler);
+
+    contexts.addHandler(context);
   }
 
   public void setServlet(String path, HttpServlet servlet) {
