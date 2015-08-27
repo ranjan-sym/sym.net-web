@@ -14,6 +14,7 @@ import org.glassfish.jersey.servlet.ServletContainer;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.*;
+import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.net.URL;
@@ -34,29 +35,33 @@ public class Router {
 
   private final WebAppContext context;
   private final UserSource userSource;
-  private final String path;
   private final String resource;
-  private final String resourceUrl;
   private final SecureRandom random;
+  private final boolean useFileSystem;
 
   public Router(UserSource userSource, String path, String resource) {
-    this(userSource, path, resource, PAGES);
+    this(userSource, path, resource, false, PAGES);
   }
 
-  public Router(UserSource userSource, String path, String resource, String pagesPath) {
+  public Router(UserSource userSource, String path, File wwwRoot) {
+    this(userSource, path, wwwRoot.getAbsolutePath(), true, PAGES);
+  }
+
+  public Router(UserSource userSource, String path, String resource, boolean useFileSystem, String pagesPath) {
     assert(resource != null);
 
     this.userSource = userSource;
-    this.path = path;
     this.resource = resource;
-    this.resourceUrl = getClass().getClassLoader().getResource(resource).toExternalForm();
+    this.useFileSystem = useFileSystem;
     this.random = new SecureRandom();
-
+    String absolutePath = useFileSystem ?
+            resource :
+            getClass().getClassLoader().getResource(resource).toExternalForm();
 
     // Create a web app context
     context = new WebAppContext();
     context.setContextPath(path);
-    context.setWar(resourceUrl);
+    context.setWar(absolutePath);
 
     // Set the ContainerIncludePattern so that jetty examines the container-path
     // jars for tlds, web-fragments, et
@@ -286,7 +291,11 @@ public class Router {
 
   private boolean exists(String path) {
     System.out.println("Searching for " + resource + path);
-    return getClass().getClassLoader().getResource(resource + path) != null;
+    if (useFileSystem) {
+      return new File(resource, path).exists();
+    } else {
+      return getClass().getClassLoader().getResource(resource + path) != null;
+    }
   }
 
   private static class HttpSessionDelegation implements Session.Delegation {
