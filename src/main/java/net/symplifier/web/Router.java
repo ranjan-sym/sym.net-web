@@ -272,7 +272,14 @@ public class Router {
   }
 
   private User findRememberedUser(HttpServletRequest request) {
-    for(Cookie cookie:request.getCookies()) {
+    // The cookies array is null in the very first request, need to handle that
+    Cookie[] cookies = request.getCookies();
+    if (cookies ==  null) {
+      return null;
+    }
+
+    // Only if we have some cookies, then we go through it
+    for(Cookie cookie:cookies) {
       if (cookie.getName().equals("user-remembered")) {
         String parts[] = cookie.getValue().split("-");
         if (parts.length != 2) {
