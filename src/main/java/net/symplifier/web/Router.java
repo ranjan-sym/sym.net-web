@@ -5,6 +5,8 @@ import net.symplifier.web.acl.AccessControlException;
 import net.symplifier.web.acl.User;
 import net.symplifier.web.acl.UserSource;
 import org.apache.jasper.servlet.JspServlet;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.webapp.WebAppContext;
@@ -17,13 +19,15 @@ import javax.servlet.http.*;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
-import java.net.URL;
 import java.security.SecureRandom;
+
 
 /**
  * Created by ranjan on 8/10/15.
  */
 public class Router {
+  public static final Logger LOGGER = LogManager.getLogger(Router.class);
+
   public static final String WEB_INF = "/WEB-INF";
   public static final String SESSION_USER = "USER";
 
@@ -341,11 +345,20 @@ public class Router {
       // Start application session
       Session session = Session.start(user, new HttpSessionDelegation(request.getSession()));
 
-      // Handle the request
-      request.getRequestDispatcher(target).forward(request, response);
+      try {
+        // Handle the request
+        request.getRequestDispatcher(target).forward(request, response);
 
-      // End the application session
-      session.end();
+        session.commit();
+      } catch(Exception e) {
+        e.printStackTrace();
+        LOGGER.error("Error in JSP session", e);
+        response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        session.rollback();
+      } finally {
+        // End the application session
+        session.end();
+      }
 
     }
   }
