@@ -10,6 +10,7 @@ import org.eclipse.jetty.server.handler.ResourceHandler;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.webapp.Configuration;
 import org.eclipse.jetty.webapp.JettyWebXmlConfiguration;
 import org.eclipse.jetty.webapp.WebAppContext;
@@ -17,7 +18,10 @@ import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.servlet.ServletContainer;
 
+import javax.servlet.MultipartConfigElement;
 import javax.servlet.http.HttpServlet;
+import java.io.File;
+import java.net.MalformedURLException;
 import java.net.URL;
 
 
@@ -33,15 +37,16 @@ public class WebServer {
   public WebServer(int port) {
     server = new Server(port);
 
+
+
     // We are also going to support JSP and JSTL by pages.private.
     // Annotation configuration is required in order to correctly set up the
     // JSP container
     Configuration.ClassList classList
             = Configuration.ClassList.setServerDefault(server);
-    classList.addBefore(
-            JettyWebXmlConfiguration.class.getCanonicalName(),
-            AnnotationConfiguration.class.getCanonicalName()
-    );
+    classList.addAfter("org.eclipse.jetty.webapp.FragmentConfiguration", "org.eclipse.jetty.plus.webapp.EnvConfiguration", "org.eclipse.jetty.plus.webapp.PlusConfiguration");
+    classList.addBefore("org.eclipse.jetty.webapp.JettyWebXmlConfiguration", "org.eclipse.jetty.annotations.AnnotationConfiguration");
+
   }
 
   public void start() throws WebServerException {
@@ -131,11 +136,36 @@ public class WebServer {
 
   }
 
+  public void setStaticHandler(String path, File location) {
+    ResourceHandler resourceHandler = new ResourceHandler();
+    resourceHandler.setResourceBase(location.getAbsolutePath());
+    resourceHandler.setDirectoriesListed(true);
+
+    ContextHandler context = new ContextHandler(path);
+    context.setHandler(resourceHandler);
+
+    contexts.addHandler(context);
+  }
+
+  public void setUploadServlet(String path, HttpServlet servlet) {
+    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
+    context.setContextPath(path);
+
+    ServletHolder holder = new ServletHolder(servlet);
+    holder.getRegistration().setMultipartConfig(
+            new MultipartConfigElement("")
+    );
+    context.addServlet(holder, "/*");
+
+    contexts.addHandler(context);
+  }
+
   public void setServlet(String path, HttpServlet servlet) {
     ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
     context.setContextPath(path);
 
-    context.addServlet(new ServletHolder(servlet), "/*");
+    ServletHolder holder = new ServletHolder(servlet);
+    context.addServlet(holder, "/*");
 
     contexts.addHandler(context);
   }
