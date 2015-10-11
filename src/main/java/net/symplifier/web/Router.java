@@ -1,24 +1,26 @@
 package net.symplifier.web;
 
 import net.symplifier.core.application.Session;
-import net.symplifier.web.acl.AccessControlException;
 import net.symplifier.web.acl.User;
 import net.symplifier.web.acl.UserSource;
 import org.apache.jasper.servlet.JspServlet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jetty.servlet.DefaultServlet;
+import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.webapp.WebAppContext;
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.servlet.ServletContainer;
 
+import javax.servlet.MultipartConfigElement;
 import javax.servlet.ServletException;
 import javax.servlet.http.*;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
+import java.net.URLEncoder;
 import java.security.SecureRandom;
 
 
@@ -40,8 +42,10 @@ public class Router {
   private final WebAppContext context;
   private final UserSource userSource;
   private final String resource;
-  private final SecureRandom random;
+  //private final SecureRandom random;
   private final boolean useFileSystem;
+
+  private PreProcessor preProcessor;
 
   public Router(UserSource userSource, String path, String resource) {
     this(userSource, path, resource, false, PAGES);
@@ -57,7 +61,7 @@ public class Router {
     this.userSource = userSource;
     this.resource = resource;
     this.useFileSystem = useFileSystem;
-    this.random = new SecureRandom();
+    //this.random = new SecureRandom();
     String absolutePath = useFileSystem ?
             resource :
             getClass().getClassLoader().getResource(resource).toExternalForm();
@@ -85,6 +89,10 @@ public class Router {
     context.addServlet(new ServletHolder(new JspServlet()), pagesPath + "/*");
   }
 
+  public void setPreProcessor(PreProcessor preProcessor) {
+    this.preProcessor = preProcessor;
+  }
+
   public WebAppContext getContext() {
     return context;
   }
@@ -97,6 +105,14 @@ public class Router {
     context.addServlet(new ServletHolder(servlet), WEB_INF + path + "/*");
   }
 
+  public void addUploadServlet(String path, HttpServlet servlet) {
+    ServletHolder holder = new ServletHolder(servlet);
+    holder.getRegistration().setMultipartConfig(
+            new MultipartConfigElement("")
+    );
+    context.addServlet(holder, WEB_INF + path + "/*");
+  }
+
   public void addJerseyServlet(String path, Package pkg) {
     ResourceConfig config = new ResourceConfig()
             .packages(pkg.getName())
@@ -107,7 +123,25 @@ public class Router {
     context.addServlet(new ServletHolder(container), WEB_INF + path + "/*");
   }
 
+
+  public void setAjaxEntryPoint(WebServer owner, String path, Class clazz) {
+    ResourceConfig config = new ResourceConfig()
+            .registerClasses(clazz)
+            .register(JacksonFeature.class);
+
+    ServletContainer container = new ServletContainer(config);
+    context.addServlet(new ServletHolder(container), WEB_INF + path + "/*");
+
+    //owner.setAjaxEntryPoint(WEB_INF + path, clazz);
+  }
+
   private final HttpServlet internalRouter = new HttpServlet() {
+
+    @Override
+    protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+      process(req, resp);
+    }
+
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
       process(req, resp);
@@ -235,45 +269,45 @@ public class Router {
 
   }
 
-  /**
-   * Try to login using the given request. The login parameters are expected to
-   * be provided by POST method on 'username', 'password' and 'remember'. If a
-   * login is successful, the method returns true, otherwise if its not capable
-   * to do the login, it returns false. If a problem occurs during login an
-   * exception is thrown with message
-   *
-   * @param request
-   * @return
-   */
-  private User tryLogin(HttpServletRequest request, HttpServletResponse response) throws LoginException {
-    String username = request.getParameter("username");
-    String password = request.getParameter("password");
-    String remember = request.getParameter("remember");
-
-    // Try to see if we can find a user with the given username
-    User user = userSource.find(username);
-    if (user == null) {
-      throw new LoginException("User not found");
-    }
-
-    if (!user.validatePassword(password)) {
-      throw new LoginException("Invalid password");
-    }
-
-    // we are through, let's see if we need to remember this user over longer
-    // sessions
-    if (remember != null && remember.trim().length() > 0) {
-
-      String machineId = new BigInteger(130, random).toString(32);
-      String id = user.remember(machineId);
-
-      response.addCookie(new Cookie("machine", machineId));
-      response.addCookie(new Cookie("remember", id));
-
-    }
-
-    return user;
-  }
+//  /**
+//   * Try to login using the given request. The login parameters are expected to
+//   * be provided by POST method on 'username', 'password' and 'remember'. If a
+//   * login is successful, the method returns true, otherwise if its not capable
+//   * to do the login, it returns false. If a problem occurs during login an
+//   * exception is thrown with message
+//   *
+//   * @param request
+//   * @return
+//   */
+//  private User tryLogin(HttpServletRequest request, HttpServletResponse response) throws LoginException {
+//    String username = request.getParameter("username");
+//    String password = request.getParameter("password");
+//    String remember = request.getParameter("remember");
+//
+//    // Try to see if we can find a user with the given username
+//    User user = userSource.find(username);
+//    if (user == null) {
+//      throw new LoginException("User not found");
+//    }
+//
+//    if (!user.validatePassword(password)) {
+//      throw new LoginException("Invalid password");
+//    }
+//
+//    // we are through, let's see if we need to remember this user over longer
+//    // sessions
+//    if (remember != null && remember.trim().length() > 0) {
+//
+//      String machineId = new BigInteger(130, random).toString(32);
+//      String id = user.remember(machineId);
+//
+//      response.addCookie(new Cookie("machine", machineId));
+//      response.addCookie(new Cookie("remember", id));
+//
+//    }
+//
+//    return user;
+//  }
 
   private User findRememberedUser(HttpServletRequest request) {
     // The cookies array is null in the very first request, need to handle that
@@ -309,7 +343,7 @@ public class Router {
     }
   }
 
-  private static class HttpSessionDelegation implements Session.Delegation {
+  public static class HttpSessionDelegation implements Session.Delegation {
     private final HttpSession httpSession;
 
     public HttpSessionDelegation(HttpSession httpSession) {
@@ -339,13 +373,26 @@ public class Router {
     // not been defined, in which case, we will forward the request to a login page
     if (privateAccess && user == null) {
       // Redirect to the login page
-      response.sendRedirect("/login?returnUrl=" + request.getRequestURI());
+      String returnUrl = request.getQueryString();
+      if (returnUrl.length() > 0) {
+        returnUrl = request.getRequestURI() + URLEncoder.encode("?" + returnUrl, "UTF-8");
+      } else {
+        returnUrl = request.getRequestURI();
+      }
+
+      response.sendRedirect("/login?returnUrl=" + returnUrl);
     } else {
 
       // Start application session
       Session session = Session.start(user, new HttpSessionDelegation(request.getSession()));
 
       try {
+        // Pre-process the request, allowing the application to add certain
+        // attributes to the request
+        if (preProcessor != null) {
+          preProcessor.preProcess(request);
+        }
+
         // Handle the request
         request.getRequestDispatcher(target).forward(request, response);
 
