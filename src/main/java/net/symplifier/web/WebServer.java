@@ -1,6 +1,5 @@
 package net.symplifier.web;
 
-import net.symplifier.web.access.UserSource;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.jsp.JettyJspServlet;
 import org.eclipse.jetty.server.Server;
@@ -175,6 +174,7 @@ public class WebServer {
     ResourceConfig config = new ResourceConfig()
             .packages(pkg.getName())
             .register(JacksonFeature.class);
+
     ServletContainer container = new ServletContainer(config);
 
     ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
@@ -184,5 +184,35 @@ public class WebServer {
     contexts.addHandler(context);
 
 
+  }
+
+  public void setAjaxEntryPoint(String path, Class clazz) {
+    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
+    context.setContextPath(path);
+
+    ServletHolder jerseyServlet = context.addServlet(
+            org.glassfish.jersey.servlet.ServletContainer.class, "/*");
+    jerseyServlet.setInitOrder(0);
+
+    jerseyServlet.setInitParameter(
+            "jersey.config.server.provider.classnames",
+            clazz.getCanonicalName()
+    );
+    contexts.addHandler(context);
+  }
+
+  public void setJsonServlet(String path, Object obj) {
+    ResourceConfig config = new ResourceConfig()
+            .registerInstances(obj)
+            .register(JacksonFeature.class);
+
+    ServletContainer container = new ServletContainer(config);
+    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
+    context.setContextPath(path);
+
+
+
+    context.addServlet(new ServletHolder(container), "/*");
+    contexts.addHandler(context);
   }
 }
