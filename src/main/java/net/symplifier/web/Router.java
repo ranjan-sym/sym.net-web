@@ -374,7 +374,7 @@ public class Router {
     if (privateAccess && user == null) {
       // Redirect to the login page
       String returnUrl = request.getQueryString();
-      if (returnUrl.length() > 0) {
+      if (returnUrl != null && returnUrl.length() > 0) {
         returnUrl = request.getRequestURI() + URLEncoder.encode("?" + returnUrl, "UTF-8");
       } else {
         returnUrl = request.getRequestURI();
