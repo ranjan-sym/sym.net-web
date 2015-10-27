@@ -2,6 +2,7 @@ package net.symplifier.web;
 
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.jsp.JettyJspServlet;
+import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.server.handler.ContextHandlerCollection;
@@ -175,6 +176,22 @@ public class WebServer {
     context.addServlet(holder, "/*");
 
     contexts.addHandler(context);
+  }
+
+  public void removeHandler(String path) {
+    Handler handlerToRemove = null;
+    for (Handler handler: contexts.getHandlers()) {
+      if (handler instanceof ServletContextHandler) {
+        if (path.equals( ((ServletContextHandler) handler).getContextPath())) {
+          handlerToRemove = handler;
+          break;
+        }
+      }
+    }
+
+    if (handlerToRemove != null) {
+      contexts.removeHandler(handlerToRemove);
+    }
   }
 
   public void setJsonServlet(String path, Package pkg) {
