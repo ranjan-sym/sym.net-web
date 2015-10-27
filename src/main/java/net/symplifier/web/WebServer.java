@@ -58,6 +58,14 @@ public class WebServer {
     }
   }
 
+  public void stop() throws WebServerException {
+    try {
+      server.stop();
+    } catch (Exception e) {
+      throw new WebServerException(e);
+    }
+  }
+
   public void setRouter(String path, Router router) {
     contexts.addHandler(router.getContext());
   }
