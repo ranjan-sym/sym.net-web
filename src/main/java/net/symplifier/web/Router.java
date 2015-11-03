@@ -164,6 +164,10 @@ public class Router {
         return;
       }
 
+      if (path.endsWith("/")) {
+        path += "index";
+      }
+
       String publicPath = PUBLIC + path + ".jsp";
       // Let's see if the given path corresponds to a publicly accessible page
       if(exists(publicPath)) {
