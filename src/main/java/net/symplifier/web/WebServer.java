@@ -3,10 +3,12 @@ package net.symplifier.web;
 import net.symplifier.web.access.UserSource;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.jsp.JettyJspServlet;
+import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.server.handler.ContextHandlerCollection;
 import org.eclipse.jetty.server.handler.ResourceHandler;
+import org.eclipse.jetty.server.session.HashSessionManager;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
@@ -21,6 +23,7 @@ import org.glassfish.jersey.servlet.ServletContainer;
 import javax.servlet.MultipartConfigElement;
 import javax.servlet.http.HttpServlet;
 import java.io.File;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 
@@ -32,6 +35,7 @@ public class WebServer {
 
   private final Server server;
   private final ContextHandlerCollection contexts = new ContextHandlerCollection();
+  private final File sessionDir;
 
 
   public WebServer(int port) {
@@ -47,6 +51,8 @@ public class WebServer {
     classList.addAfter("org.eclipse.jetty.webapp.FragmentConfiguration", "org.eclipse.jetty.plus.webapp.EnvConfiguration", "org.eclipse.jetty.plus.webapp.PlusConfiguration");
     classList.addBefore("org.eclipse.jetty.webapp.JettyWebXmlConfiguration", "org.eclipse.jetty.annotations.AnnotationConfiguration");
 
+    sessionDir = new File("sessions");
+    sessionDir.mkdirs();
   }
 
   public void start() throws WebServerException {
@@ -57,10 +63,6 @@ public class WebServer {
     } catch (Exception e) {
       throw new WebServerException(e);
     }
-  }
-
-  public void setRouter(String path, Router router) {
-    contexts.addHandler(router.getContext());
   }
 
 //  public void setDefaultRouter(String path, String resource, UserSource userSource) throws WebServerException{
@@ -179,10 +181,23 @@ public class WebServer {
 
     ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
     context.setContextPath(path);
+//    HashSessionManager sessionManager = new HashSessionManager();
+//    try {
+//
+//      sessionManager.setStoreDirectory(sessionDir);
+//      sessionManager.
+//    } catch (IOException e) {
+//      e.printStackTrace();
+//    }
+//    context.setSessionHandler(sessionManager.getSessionHandler());
 
     context.addServlet(new ServletHolder(container), "/*");
     contexts.addHandler(context);
 
 
+  }
+
+  public Handler[] getHandlers() {
+    return contexts.getHandlers();
   }
 }
