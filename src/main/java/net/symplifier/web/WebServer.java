@@ -31,13 +31,17 @@ import java.net.URL;
 public class WebServer {
 
   private final Server server;
-  private final ContextHandlerCollection contexts = new ContextHandlerCollection();
+  private final ContextHandlerCollection contexts;
+  private final WebAppContext defaultContext;
 
 
-  public WebServer(int port) {
-    server = new Server(port);
+  public WebServer(Server server) {
+    this.server = server;
 
+    defaultContext = (WebAppContext) server.getHandler();
 
+    this.contexts = new ContextHandlerCollection();
+//    server.setHandler(this.contexts);
 
     // We are also going to support JSP and JSTL by pages.private.
     // Annotation configuration is required in order to correctly set up the
@@ -47,10 +51,23 @@ public class WebServer {
     classList.addAfter("org.eclipse.jetty.webapp.FragmentConfiguration", "org.eclipse.jetty.plus.webapp.EnvConfiguration", "org.eclipse.jetty.plus.webapp.PlusConfiguration");
     classList.addBefore("org.eclipse.jetty.webapp.JettyWebXmlConfiguration", "org.eclipse.jetty.annotations.AnnotationConfiguration");
 
+//    initServlets();
+  }
+
+  public WebServer(int port) {
+    this(new Server(port));
+ }
+
+  public void initServlets() {
+
+
+//    this.contexts.addHandler(defaultContext);
+
+    server.setHandler(this.contexts);
   }
 
   public void start() throws WebServerException {
-    server.setHandler(contexts);
+//    initServlets();
 
     try {
       server.start();
@@ -169,6 +186,7 @@ public class WebServer {
   }
 
   public void setServlet(String path, HttpServlet servlet) {
+    System.out.println("Registering a servlet at path " + path);
     ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
     context.setContextPath(path);
 
@@ -239,5 +257,9 @@ public class WebServer {
 
     context.addServlet(new ServletHolder(container), "/*");
     contexts.addHandler(context);
+  }
+
+  public Server getServer() {
+    return server;
   }
 }

@@ -13,12 +13,6 @@ public interface User extends net.symplifier.core.application.User {
   boolean validatePassword(String password);
 
   /**
-   * Retrieve the role name of the given user
-   * @return
-   */
-  String getRole();
-
-  /**
    * Remember this user for the given machine name
    * @param machine The name of the machine to be remembered
    * @return The id used to identify the user for the given machine

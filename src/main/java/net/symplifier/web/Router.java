@@ -6,6 +6,8 @@ import net.symplifier.web.acl.UserSource;
 import org.apache.jasper.servlet.JspServlet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jetty.server.Handler;
+import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
@@ -22,6 +24,9 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.net.URLEncoder;
 import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 
 /**
@@ -47,15 +52,15 @@ public class Router {
 
   private PreProcessor preProcessor;
 
-  public Router(UserSource userSource, String path, String resource) {
-    this(userSource, path, resource, false, PAGES);
+  public Router(Server server, UserSource userSource, String path, String resource) {
+    this(server, userSource, path, resource, false, PAGES);
   }
 
-  public Router(UserSource userSource, String path, File wwwRoot) {
-    this(userSource, path, wwwRoot.getAbsolutePath(), true, PAGES);
+  public Router(Server server, UserSource userSource, String path, File wwwRoot) {
+    this(server, userSource, path, wwwRoot.getAbsolutePath(), true, PAGES);
   }
 
-  public Router(UserSource userSource, String path, String resource, boolean useFileSystem, String pagesPath) {
+  public Router(Server server, UserSource userSource, String path, String resource, boolean useFileSystem, String pagesPath) {
     assert(resource != null);
 
     this.userSource = userSource;
@@ -67,7 +72,22 @@ public class Router {
             getClass().getClassLoader().getResource(resource).toExternalForm();
 
     // Create a web app context
-    context = new WebAppContext();
+    if (server.getHandlers().length == 0) {
+      this.context = new WebAppContext();
+    } else {
+      this.context = (WebAppContext) server.getHandler();
+    }
+
+//    ServletHolder[] holders = context.getServletHandler().getServlets();
+//
+//    ServletHolder[] filteredHolders = Arrays.stream(holders)
+//            .filter(h -> !h.getName().equals("jsp"))      // Filter out default "jsp" servlet
+//            .map(h -> { h.setInitOrder(-1); return h;} )  // Set init order to -1 on each of the filtered items
+//            .toArray(ServletHolder[]::new);
+//
+//    context.getServletHandler().setServlets(filteredHolders);
+
+//    context = new WebAppContext();
     context.setContextPath(path);
     context.setWar(absolutePath);
 
@@ -102,7 +122,52 @@ public class Router {
   }
 
   public void addServlet(String path, HttpServlet servlet) {
+    System.out.println("Add servlet to path " + path);
     context.addServlet(new ServletHolder(servlet), WEB_INF + path + "/*");
+  }
+
+
+  // List of dynamic servlets (Added for use in HTTP Protocol in Wscada.net
+  private Map<String, HttpServlet> dynamicServlets = new HashMap<>();
+
+  public boolean addDynamicServlet(String path, HttpServlet servlet) {
+    if (dynamicServlets.containsKey(path)) {
+      return false;
+    }
+
+    dynamicServlets.put(path, servlet);
+    return true;
+  }
+
+  public void removeDynamicServlet(String path) {
+    dynamicServlets.remove(path);
+  }
+
+  private boolean runDynamic(String path, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
+    for(Map.Entry<String, HttpServlet> entry:dynamicServlets.entrySet()) {
+      if (path.startsWith(entry.getKey())) {
+        entry.getValue().service(request, response);
+        return true;
+      }
+    }
+
+    return false;
+  }
+  //TODO It looks like it would be safer to pass the servlet instance to remove here
+  // http://stackoverflow.com/questions/5150730/jetty-dynamically-removing-the-registered-servlet
+  // otherwise there is a change we might remove something needed by application
+  public void removeServlet(String path) {
+    Handler handlerToRemove = null;
+    for(Handler handler:context.getHandlers()) {
+      if(handler instanceof ServletHolder) {
+        handlerToRemove = handler;
+        break;
+      }
+    }
+
+    if (handlerToRemove != null) {
+      ServletHolder holder = (ServletHolder) handlerToRemove;
+    }
   }
 
   public void addUploadServlet(String path, HttpServlet servlet) {
@@ -155,8 +220,8 @@ public class Router {
     private void process(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
       // The primary function of the default router is to check
       // for JSP pages, and forward to one if available
-
-      String path = request.getRequestURI();
+      String origPath = request.getRequestURI();
+      String path = origPath;
       // if we get a path starting with WEB-INF then it means, the
       // resource could not be located
       if(path.startsWith(WEB_INF)) {
@@ -178,10 +243,10 @@ public class Router {
       String privatePath = PRIVATE + path + ".jsp";
       if (exists(privatePath)) {
         forward(privatePath, request, response, true);
-      } else {
+      } else if (!runDynamic(origPath, request, response)) {
         // just forward the request to WEB-INF to let other
         // servlet handle the request if one is available
-        forward(WEB_INF + path, request, response, false);
+        forward(WEB_INF + origPath, request, response, false);
       }
     }
   };
